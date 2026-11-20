@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIFAランキングと人口の世界地図</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #1f2933;
+    --muted: #6b7785;
+    --line: #dde3ea;
+    --accent: #e8590c;
+    --blue: #1f63a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: "Yu Gothic", "YuGothic", "Hiragino Sans", "Meiryo", system-ui, sans-serif;
+    line-height: 1.6;
+  }
+
+  header { padding: 14px 20px 10px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header .sub { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+  #corr {
+    margin-top: 8px; padding: 8px 12px; font-size: 13px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  }
+  #corr b { font-size: 15px; }
+  #corr .note { color: var(--muted); }
+
+  /* 左:FIFAランキング / 中央:世界地図 / 右:人口推移 */
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 0 20px 20px;
+    align-items: start;
+  }
+  main .side { display: none; }                       /* 国を選ぶまでは地図だけ */
+  main.has-selection { grid-template-columns: 350px minmax(0, 1fr) 380px; }
+  main.has-selection .side { display: block; }
+  .panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .panel h2 { margin: 0 0 8px; font-size: 15px; color: var(--muted); font-weight: 600; }
+  .hint { color: var(--muted); font-size: 14px; }
+
+  /* 地図 */
+  #mapWrap { padding: 10px; }
+  #toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  #toolbar select { flex: 1; min-width: 160px; padding: 6px 8px; font-size: 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  #toolbar button {
+    width: 34px; height: 32px; font-size: 16px; border: 1px solid var(--line);
+    border-radius: 6px; background: #fff; cursor: pointer;
+  }
+  #toolbar button.wide { width: auto; padding: 0 10px; font-size: 13px; }
+  #backBtn {
+    display: none; width: auto !important; padding: 0 14px !important; font-size: 14px !important; font-weight: 700;
+    background: var(--accent) !important; color: #fff; border-color: var(--accent) !important;
+  }
+  main.has-selection #backBtn { display: inline-block; }
+  #mapHint { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+  main.has-selection #mapHint { display: none; }
+  #map { width: 100%; height: auto; max-height: 72vh; display: block; background: #e9f0f6; border-radius: 8px; cursor: grab; touch-action: none; }
+  #map:active { cursor: grabbing; }
+  #map path.country { stroke: #fff; stroke-width: 0.5px; vector-effect: non-scaling-stroke; cursor: pointer; }
+  #map path.country:hover { stroke: #333; stroke-width: 1.2px; }
+  #map path.country.nodata { cursor: default; }
+  #map path.country.selected { stroke: var(--accent); stroke-width: 2.2px; }
+  #legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); align-items: center; }
+  #legend .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; border: 1px solid rgba(0,0,0,.08); }
+  #tip {
+    position: fixed; pointer-events: none; z-index: 20; display: none;
+    background: rgba(20,24,28,.92); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 13px; line-height: 1.5;
+    max-width: 260px;
+  }
+
+  /* 左:FIFA */
+  .team + .team { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .team .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .team.compact .rank .num { font-size: 36px; }
+  .team.compact .rank .unit { font-size: 16px; }
+  #fifaHover { min-height: 1.7em; font-size: 13px; margin: 6px 0 2px; }
+  #fifaChart { width: 100%; height: auto; display: block; touch-action: pan-y; }
+  #fifaChart .axis text { font-size: 11px; fill: var(--muted); }
+  #fifaChart .axis path, #fifaChart .axis line { stroke: var(--line); }
+  #fifaChart .grid line { stroke: var(--line); stroke-dasharray: 2 3; }
+  #fifaChart .grid path { display: none; }
+  .chartnote { margin: 4px 0 12px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .team .name { font-size: 18px; font-weight: 700; }
+  .team .en { font-size: 12px; color: var(--muted); }
+  .team .rank { display: flex; align-items: baseline; gap: 6px; margin: 6px 0 4px; }
+  .team .rank .num { font-size: 56px; font-weight: 800; line-height: 1; color: var(--blue); }
+  .team .rank .unit { font-size: 20px; font-weight: 700; color: var(--blue); }
+  .team .rank .of { font-size: 13px; color: var(--muted); }
+  .bar { position: relative; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #0a2f6b, #4a97c9 50%, #d6ecf3); margin: 8px 0 14px; }
+  .bar i { position: absolute; top: -4px; width: 4px; height: 16px; background: var(--accent); border-radius: 2px; transform: translateX(-2px); }
+  .team dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+  .team dt { color: var(--muted); }
+  .team dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .up { color: #1a8f4a; } .down { color: #d6336c; } .same { color: var(--muted); }
+  .release { margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+  /* 右:人口 */
+  #popTitle { font-size: 18px; font-weight: 700; }
+  #popNow { margin: 4px 0 0; font-size: 28px; font-weight: 800; color: var(--blue); line-height: 1.2; }
+  #popNow small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+  #popSub { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  #popChart { width: 100%; height: auto; display: block; touch-action: pan-y; }
+  #popChart .axis text { font-size: 11px; fill: var(--muted); }
+  #popChart .axis path, #popChart .axis line { stroke: var(--line); }
+  #popChart .grid line { stroke: var(--line); stroke-dasharray: 2 3; }
+  #popChart .grid path { display: none; }
+
+  footer { padding: 0 20px 28px; font-size: 12px; color: var(--muted); }
+  footer p { margin: 2px 0; }
+
+  @media (max-width: 1100px) {
+    main.has-selection { grid-template-columns: minmax(0, 1fr); }
+    #mapWrap { order: 1; }
+    #fifaPanel { order: 2; }
+    #popPanel { order: 3; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>FIFAランキングと人口の世界地図</h1>
+    <p class="sub">地図の国をクリックすると、左に FIFA ランキングの推移、右に人口の推移が出ます。</p>
+    <div id="corr"></div>
+  </header>
+
+  <main>
+    <section class="panel side" id="fifaPanel">
+      <h2>FIFA 男子ランキングの推移</h2>
+      <div id="fifaBody"></div>
+    </section>
+
+    <section class="panel" id="mapWrap">
+      <p id="mapHint">地図の国をクリックしてください。小さい国は、拡大するか、下のプルダウンから選べます。</p>
+      <div id="toolbar">
+        <button id="backBtn" type="button">← 国を選びなおす</button>
+        <select id="countrySelect" aria-label="国を選ぶ"></select>
+        <button id="zoomIn" title="拡大" aria-label="拡大">＋</button>
+        <button id="zoomOut" title="縮小" aria-label="縮小">－</button>
+        <button id="zoomReset" class="wide" title="もとに戻す">全体</button>
+      </div>
+      <svg id="map" viewBox="0 0 960 500" role="img" aria-label="世界地図"></svg>
+      <div id="legend"></div>
+    </section>
+
+    <section class="panel side" id="popPanel">
+      <h2>人口の推移</h2>
+      <div id="popBody"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>FIFA ランキング:FIFA/コカ・コーラ男子世界ランキング。1992年12月〜2024年9月は過去の公表順位、<span id="fDate"></span>発表分が最新です(次回は <span id="fNext"></span> の予定)。その間の発表分はデータがありません。</p>
+    <p>人口:世界銀行(World Bank)の人口データ(GitHub の datasets/population 経由)。1960〜2025年</p>
+    <p>地図:Natural Earth(world-atlas 経由)/ 描画:D3.js</p>
+    <p>色は FIFA ランキングの順位帯を表します。イギリスは4つの代表チームがあるため、クリックすると4チームをまとめて表示し、地図の色は最上位のチーム(イングランド)の順位で塗っています。</p>
+  </footer>
+
+  <div id="tip"></div>
+
+  <!-- ファイルが足りないとき、画面に知らせる -->
+  <script>
+    window.addEventListener('error', function (e) {
+      var t = e.target;
+      if (t && t.tagName === 'SCRIPT' && t.src) {
+        var box = document.getElementById('loadError');
+        if (!box) {
+          box = document.createElement('div');
+          box.id = 'loadError';
+          box.style.cssText = 'margin:12px 20px;padding:12px 16px;background:#fff0f0;border:1px solid #e03131;border-radius:8px;color:#c92a2a;font-size:14px;line-height:1.7';
+          box.innerHTML = '<b>ファイルを読み込めませんでした。</b> 次のファイルが、index.html と同じ場所にあるか確認してください:<ul id="loadErrorList" style="margin:6px 0 0"></ul>';
+          document.body.insertBefore(box, document.body.firstChild);
+        }
+        var li = document.createElement('li');
+        var parts = decodeURIComponent(t.src).split('/');
+        li.textContent = (parts[parts.length - 2] === 'lib' ? 'lib/' : '') + parts[parts.length - 1];
+        document.getElementById('loadErrorList').appendChild(li);
+      }
+    }, true);
+  </script>
+  <script src="lib/d3.min.js"></script>
+  <script src="lib/topojson-client.min.js"></script>
+  <script src="data.js"></script>
+  <script src="world.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
